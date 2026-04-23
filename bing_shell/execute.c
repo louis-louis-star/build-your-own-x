@@ -194,6 +194,7 @@ static int shell_launch_command(Command *cmd, const char *cmdline_str) {
             /* 处理暂停状态 */
             if (WIFSTOPPED(status)) {
                 /* 进程被暂停，添加到任务列表 */
+                last_exit_status = 128 + SIGTSTP;
                 shell_add_job(pid, cmdline_str ? cmdline_str : cmd->args[0]);
                 /* shell_stop_job 已经打印了停止信息，这里不需要再打印 */
             } else if (WIFEXITED(status)) {
@@ -208,7 +209,7 @@ static int shell_launch_command(Command *cmd, const char *cmdline_str) {
         }
     }
 
-    return 1;
+    return last_exit_status;
 }
 
 /**
@@ -285,6 +286,7 @@ static int shell_execute_simple(char *line) {
         }
 
         result = shell_launch_command(cmd, var_expanded);
+        last_exit_status = result;  /* 确保外部命令的退出状态被记录 */
     } else {
         result = shell_launch_pipeline(cmdline);
     }
