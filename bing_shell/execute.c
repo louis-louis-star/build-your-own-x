@@ -277,7 +277,7 @@ static int shell_execute_simple(char *line) {
         for (int i = 0; i < shell_num_builtins(); i++) {
             if (strcmp(cmd->args[0], builtin_str[i]) == 0) {
                 result = (*builtin_func[i])(cmd->args);
-                last_exit_status = result ? 0 : 1;
+                last_exit_status = result;  /* 直接使用返回值作为退出状态 */
                 free_command_line(cmdline);
                 free(var_expanded);
                 return result;
