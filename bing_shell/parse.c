@@ -81,6 +81,26 @@ char **shell_expand_wildcards(char **args, int *argc) {
 }
 
 /**
+ * 去除字符串两端的引号
+ */
+static char *strip_quotes(char *str) {
+    if (!str) return NULL;
+
+    size_t len = strlen(str);
+    if (len < 2) return str;
+
+    /* 检查是否被单引号或双引号包围 */
+    if ((str[0] == '"' && str[len-1] == '"') ||
+        (str[0] == '\'' && str[len-1] == '\'')) {
+        /* 移动字符串内容，覆盖开头的引号 */
+        memmove(str, str + 1, len - 2);
+        str[len - 2] = '\0';
+    }
+
+    return str;
+}
+
+/**
  * 解析单个命令（处理重定向）
  */
 static int parse_single_command(char *cmd_str, Command *cmd) {
@@ -105,14 +125,14 @@ static int parse_single_command(char *cmd_str, Command *cmd) {
         if (strcmp(token, "<") == 0) {
             token = strtok_r(NULL, " \t", &saveptr);
             if (token) {
-                cmd->input_file = strdup(token);
+                cmd->input_file = strdup(strip_quotes(token));
             }
         }
         /* 输出重定向（覆盖） */
         else if (strcmp(token, ">") == 0) {
             token = strtok_r(NULL, " \t", &saveptr);
             if (token) {
-                cmd->output_file = strdup(token);
+                cmd->output_file = strdup(strip_quotes(token));
                 cmd->append_output = false;
             }
         }
@@ -120,7 +140,7 @@ static int parse_single_command(char *cmd_str, Command *cmd) {
         else if (strcmp(token, ">>") == 0) {
             token = strtok_r(NULL, " \t", &saveptr);
             if (token) {
-                cmd->output_file = strdup(token);
+                cmd->output_file = strdup(strip_quotes(token));
                 cmd->append_output = true;
             }
         }
@@ -130,7 +150,10 @@ static int parse_single_command(char *cmd_str, Command *cmd) {
         }
         /* 普通参数 */
         else {
-            cmd->args[argc++] = strdup(token);
+            cmd->args[argc] = strdup(token);
+            /* 去除参数的引号 */
+            strip_quotes(cmd->args[argc]);
+            argc++;
 
             if (argc >= bufsize) {
                 bufsize += SHELL_TOK_BUFSIZE;

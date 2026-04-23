@@ -194,9 +194,8 @@ static int shell_launch_command(Command *cmd, const char *cmdline_str) {
             /* 处理暂停状态 */
             if (WIFSTOPPED(status)) {
                 /* 进程被暂停，添加到任务列表 */
-                int job_id = shell_add_job(pid, cmdline_str ? cmdline_str : cmd->args[0]);
-                shell_stop_job(pid);
-                printf("\n[%d]  Stopped                 %s\n", job_id, cmdline_str ? cmdline_str : cmd->args[0]);
+                shell_add_job(pid, cmdline_str ? cmdline_str : cmd->args[0]);
+                /* shell_stop_job 已经打印了停止信息，这里不需要再打印 */
             } else if (WIFEXITED(status)) {
                 last_exit_status = WEXITSTATUS(status);
             } else if (WIFSIGNALED(status)) {
