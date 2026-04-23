@@ -1,7 +1,7 @@
 /**
  * execute.c - 命令执行模块
  *
- * 功能：执行外部命令和内置命令的分发，支持管道
+ * 功能：执行外部命令和内置命令的分发，支持多管道、重定向、后台运行
  */
 
 #include "shell.h"
@@ -11,61 +11,125 @@ extern char *builtin_str[];
 extern int (*builtin_func[])(char **);
 
 /**
- * 执行管道命令
- * 支持 command1 | command2 格式
+ * 设置重定向
  */
-int shell_launch_pipe(char **args1, char **args2) {
-    int pipefd[2];
-    pid_t pid1, pid2;
+static void setup_redirection(Command *cmd) {
+    /* 输入重定向 */
+    if (cmd->input_file) {
+        int fd = open(cmd->input_file, O_RDONLY);
+        if (fd < 0) {
+            perror("bing_shell: input redirect");
+            exit(EXIT_FAILURE);
+        }
+        dup2(fd, STDIN_FILENO);
+        close(fd);
+    }
+
+    /* 输出重定向 */
+    if (cmd->output_file) {
+        int flags = O_WRONLY | O_CREAT;
+        flags |= cmd->append_output ? O_APPEND : O_TRUNC;
+        int fd = open(cmd->output_file, flags, 0644);
+        if (fd < 0) {
+            perror("bing_shell: output redirect");
+            exit(EXIT_FAILURE);
+        }
+        dup2(fd, STDOUT_FILENO);
+        close(fd);
+    }
+}
+
+/**
+ * 执行多管道命令
+ */
+static int shell_launch_pipeline(CommandLine *cmdline) {
+    int pipes[MAX_PIPES][2];
+    pid_t pids[MAX_PIPES + 1];
+    int i;
     int status;
 
-    /* 创建管道 */
-    if (pipe(pipefd) == -1) {
-        perror("bing_shell: pipe");
-        return 1;
-    }
-
-    /* 第一个子进程（写端） */
-    pid1 = fork();
-    if (pid1 == 0) {
-        /* 重定向标准输出到管道写端 */
-        dup2(pipefd[1], STDOUT_FILENO);
-        close(pipefd[0]);
-        close(pipefd[1]);
-
-        if (execvp(args1[0], args1) == -1) {
-            perror("bing_shell");
+    /* 创建所有管道 */
+    for (i = 0; i < cmdline->cmd_count - 1; i++) {
+        if (pipe(pipes[i]) == -1) {
+            perror("bing_shell: pipe");
+            return 1;
         }
-        exit(EXIT_FAILURE);
     }
 
-    /* 第二个子进程（读端） */
-    pid2 = fork();
-    if (pid2 == 0) {
-        /* 重定向标准输入到管道读端 */
-        dup2(pipefd[0], STDIN_FILENO);
-        close(pipefd[1]);
-        close(pipefd[0]);
+    /* 为每个命令创建子进程 */
+    for (i = 0; i < cmdline->cmd_count; i++) {
+        Command *cmd = &cmdline->commands[i];
 
-        if (execvp(args2[0], args2) == -1) {
+        pids[i] = fork();
+
+        if (pids[i] == 0) {
+            /* 第一个命令：设置标准输入重定向 */
+            if (i == 0 && cmd->input_file) {
+                int fd = open(cmd->input_file, O_RDONLY);
+                if (fd < 0) {
+                    perror("bing_shell");
+                    exit(EXIT_FAILURE);
+                }
+                dup2(fd, STDIN_FILENO);
+                close(fd);
+            }
+
+            /* 最后一个命令：设置标准输出重定向 */
+            if (i == cmdline->cmd_count - 1 && cmd->output_file) {
+                int flags = O_WRONLY | O_CREAT;
+                flags |= cmd->append_output ? O_APPEND : O_TRUNC;
+                int fd = open(cmd->output_file, flags, 0644);
+                if (fd < 0) {
+                    perror("bing_shell");
+                    exit(EXIT_FAILURE);
+                }
+                dup2(fd, STDOUT_FILENO);
+                close(fd);
+            }
+
+            /* 非第一个命令：从上一个管道读 */
+            if (i > 0) {
+                dup2(pipes[i - 1][0], STDIN_FILENO);
+            }
+
+            /* 非最后一个命令：写入下一个管道 */
+            if (i < cmdline->cmd_count - 1) {
+                dup2(pipes[i][1], STDOUT_FILENO);
+            }
+
+            /* 关闭所有管道描述符 */
+            int j;
+            for (j = 0; j < cmdline->cmd_count - 1; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+
+            if (cmd->args[0] == NULL) {
+                exit(EXIT_SUCCESS);
+            }
+
+            execvp(cmd->args[0], cmd->args);
             perror("bing_shell");
+            exit(EXIT_FAILURE);
         }
-        exit(EXIT_FAILURE);
     }
 
-    /* 父进程关闭管道并等待 */
-    close(pipefd[0]);
-    close(pipefd[1]);
+    /* 父进程关闭所有管道 */
+    for (i = 0; i < cmdline->cmd_count - 1; i++) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
 
-    waitpid(pid1, &status, 0);
-    waitpid(pid2, &status, 0);
+    /* 等待所有子进程 */
+    for (i = 0; i < cmdline->cmd_count; i++) {
+        waitpid(pids[i], &status, 0);
+    }
 
     return 1;
 }
 
 /**
- * 启动外部进程执行命令
- * 使用fork()创建子进程，execvp()执行程序
+ * 启动单个外部进程执行命令
  */
 int shell_launch(char **args) {
     pid_t pid;
@@ -84,6 +148,41 @@ int shell_launch(char **args) {
         do {
             waitpid(pid, &status, WUNTRACED);
         } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+    }
+
+    return 1;
+}
+
+/**
+ * 执行单个命令（带重定向和后台运行支持）
+ */
+static int shell_launch_command(Command *cmd) {
+    pid_t pid;
+    int status;
+
+    if (cmd->args[0] == NULL) {
+        return 1;
+    }
+
+    pid = fork();
+
+    if (pid == 0) {
+        setup_redirection(cmd);
+
+        if (execvp(cmd->args[0], cmd->args) == -1) {
+            perror("bing_shell");
+        }
+        exit(EXIT_FAILURE);
+    } else if (pid < 0) {
+        perror("bing_shell");
+    } else {
+        if (!cmd->background) {
+            do {
+                waitpid(pid, &status, WUNTRACED);
+            } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+        } else {
+            printf("[%d]\n", pid);
+        }
     }
 
     return 1;
@@ -109,58 +208,49 @@ int shell_execute_single(char **args) {
 }
 
 /**
- * 执行命令（支持管道）
+ * 执行命令
  */
 int shell_execute(char **args) {
-    char *line_copy;
-    char *cmd1, *cmd2;
-    char **args1, **args2;
-    static char last_line[1024] = "";
-    static char **last_args = NULL;
-
     if (args[0] == NULL) {
         return 1;
     }
-
-    /* 保存原始命令行用于管道检测 */
-    /* 这里用一个简化的方法：检查是否有管道符号 */
 
     return shell_execute_single(args);
 }
 
 /**
- * 执行包含管道的命令行
- * @param line 原始命令行
+ * 执行命令行（支持多管道、重定向、后台运行）
  */
 int shell_execute_line(char *line) {
-    char *line_copy;
-    char *cmd1, *cmd2;
-    char **args;
+    CommandLine *cmdline;
+    int result;
 
-    /* 检查是否有管道 */
-    if (find_pipe(line)) {
-        line_copy = strdup(line);
-        split_pipe_command(line_copy, &cmd1, &cmd2);
-
-        if (cmd1 && cmd2) {
-            args = shell_split_line(strdup(cmd1));
-            char **args1 = args;
-            char **args2 = shell_split_line(strdup(cmd2));
-
-            shell_launch_pipe(args1, args2);
-
-            free(args1);
-            free(args2);
-            free(line_copy);
-            return 1;
-        }
-        free(line_copy);
+    cmdline = shell_parse_command_line(line);
+    if (!cmdline || cmdline->cmd_count == 0) {
+        return 1;
     }
 
-    /* 无管道，普通执行 */
-    args = shell_split_line(line);
-    int result = shell_execute_single(args);
-    free(args);
+    /* 单个命令 */
+    if (cmdline->cmd_count == 1) {
+        Command *cmd = &cmdline->commands[0];
+
+        /* 检查内置命令 */
+        int i;
+        for (i = 0; i < shell_num_builtins(); i++) {
+            if (cmd->args[0] && strcmp(cmd->args[0], builtin_str[i]) == 0) {
+                result = (*builtin_func[i])(cmd->args);
+                free_command_line(cmdline);
+                return result;
+            }
+        }
+
+        result = shell_launch_command(cmd);
+    } else {
+        /* 多管道命令 */
+        result = shell_launch_pipeline(cmdline);
+    }
+
+    free_command_line(cmdline);
     return result;
 }
 

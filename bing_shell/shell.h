@@ -15,12 +15,42 @@
 #include <string.h>
 #include <pwd.h>
 #include <linux/limits.h>
+#include <fcntl.h>
+#include <stdbool.h>
 
 /* 缓冲区大小定义 */
 #define SHELL_TOK_BUFSIZE 64
 #define SHELL_TOK_DELIM " \t\r\n\a"
 #define HISTORY_FILE ".bing_shell_history"
 #define MAX_HISTORY 1000
+#define MAX_PIPES 10
+
+/* ANSI 颜色代码 */
+#define COLOR_RED     "\033[1;31m"
+#define COLOR_GREEN   "\033[1;32m"
+#define COLOR_YELLOW  "\033[1;33m"
+#define COLOR_BLUE    "\033[1;34m"
+#define COLOR_MAGENTA "\033[1;35m"
+#define COLOR_CYAN    "\033[1;36m"
+#define COLOR_WHITE   "\033[1;37m"
+#define COLOR_RESET   "\033[0m"
+
+/* 命令结构体 */
+typedef struct {
+    char **args;        /* 参数数组 */
+    int argc;           /* 参数数量 */
+    char *input_file;   /* 输入重定向文件 */
+    char *output_file;  /* 输出重定向文件 */
+    bool append_output; /* 是否追加输出 */
+    bool background;    /* 是否后台运行 */
+} Command;
+
+/* 命令行结构体 */
+typedef struct {
+    Command *commands;  /* 命令数组 */
+    int cmd_count;      /* 命令数量 */
+    bool has_pipe;      /* 是否有管道 */
+} CommandLine;
 
 /* ===== prompt.c ===== */
 /**
@@ -56,8 +86,7 @@ char *shell_read_line(void);
 /* ===== parse.c ===== */
 /**
  * 解析命令行字符串为参数数组
- * @param line 命令行字符串
- * @return 动态分配的参数数组，调用者需要free
+ * 使用空格、制表符等作为分隔符
  */
 char **shell_split_line(char *line);
 
@@ -69,14 +98,14 @@ char **shell_split_line(char *line);
 char *shell_expand_tilde(const char *path);
 
 /**
- * 检查命令行是否包含管道
+ * 解析完整命令行（支持多管道、重定向、后台运行）
  */
-char *find_pipe(char *line);
+CommandLine *shell_parse_command_line(char *line);
 
 /**
- * 解析管道命令
+ * 释放命令行结构体
  */
-void split_pipe_command(char *line, char **cmd1, char **cmd2);
+void free_command_line(CommandLine *cmdline);
 
 /* ===== execute.c ===== */
 /**
