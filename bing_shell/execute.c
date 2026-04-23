@@ -155,8 +155,6 @@ int shell_launch(char **args) {
 
 /**
  * 执行单个命令（带重定向和后台运行支持）
- * @param cmd 命令结构体
- * @param cmdline_str 原始命令行字符串（用于记录后台任务）
  */
 static int shell_launch_command(Command *cmd, const char *cmdline_str) {
     pid_t pid;
@@ -169,6 +167,11 @@ static int shell_launch_command(Command *cmd, const char *cmdline_str) {
     pid = fork();
 
     if (pid == 0) {
+        /* 子进程：恢复默认信号处理 */
+        signal(SIGINT, SIG_DFL);
+        signal(SIGTSTP, SIG_DFL);
+        signal(SIGQUIT, SIG_DFL);
+
         setup_redirection(cmd);
 
         if (execvp(cmd->args[0], cmd->args) == -1) {
@@ -179,13 +182,30 @@ static int shell_launch_command(Command *cmd, const char *cmdline_str) {
         perror("bing_shell");
     } else {
         if (!cmd->background) {
-            do {
-                waitpid(pid, &status, WUNTRACED);
-            } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+            /* 前台任务：设置当前前台进程PID */
+            current_foreground_pid = pid;
+
+            /* 等待进程结束或暂停 */
+            waitpid(pid, &status, WUNTRACED);
+
+            /* 清除前台进程PID */
+            current_foreground_pid = -1;
+
+            /* 处理暂停状态 */
+            if (WIFSTOPPED(status)) {
+                /* 进程被暂停，添加到任务列表 */
+                int job_id = shell_add_job(pid, cmdline_str ? cmdline_str : cmd->args[0]);
+                shell_stop_job(pid);
+                printf("\n[%d]  Stopped                 %s\n", job_id, cmdline_str ? cmdline_str : cmd->args[0]);
+            } else if (WIFEXITED(status)) {
+                last_exit_status = WEXITSTATUS(status);
+            } else if (WIFSIGNALED(status)) {
+                last_exit_status = 128 + WTERMSIG(status);
+            }
         } else {
-            /* 后台任务：添加到任务列表 */
-            shell_add_job(pid, cmdline_str ? cmdline_str : cmd->args[0]);
-            printf("[%d]\n", pid);
+            /* 后台任务 */
+            int job_id = shell_add_job(pid, cmdline_str ? cmdline_str : cmd->args[0]);
+            printf("[%d] %d\n", job_id, pid);
         }
     }
 
