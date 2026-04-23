@@ -155,8 +155,10 @@ int shell_launch(char **args) {
 
 /**
  * 执行单个命令（带重定向和后台运行支持）
+ * @param cmd 命令结构体
+ * @param cmdline_str 原始命令行字符串（用于记录后台任务）
  */
-static int shell_launch_command(Command *cmd) {
+static int shell_launch_command(Command *cmd, const char *cmdline_str) {
     pid_t pid;
     int status;
 
@@ -181,6 +183,8 @@ static int shell_launch_command(Command *cmd) {
                 waitpid(pid, &status, WUNTRACED);
             } while (!WIFEXITED(status) && !WIFSIGNALED(status));
         } else {
+            /* 后台任务：添加到任务列表 */
+            shell_add_job(pid, cmdline_str ? cmdline_str : cmd->args[0]);
             printf("[%d]\n", pid);
         }
     }
@@ -219,14 +223,47 @@ int shell_execute(char **args) {
 }
 
 /**
- * 执行命令行（支持多管道、重定向、后台运行）
+ * 执行命令行（支持多管道、重定向、后台运行、别名）
  */
 int shell_execute_line(char *line) {
     CommandLine *cmdline;
     int result;
+    char *expanded_line = NULL;
+
+    /* 更新后台任务状态 */
+    shell_update_jobs();
+
+    /* 检查并展开别名 */
+    char *line_copy = strdup(line);
+    char *first_word = strtok(line_copy, " \t");
+
+    if (first_word) {
+        char *alias_expanded = shell_expand_alias(first_word);
+        if (alias_expanded) {
+            /* 获取剩余参数 */
+            char *rest = strtok(NULL, "");
+
+            /* 构建展开后的命令行 */
+            if (rest) {
+                expanded_line = malloc(strlen(alias_expanded) + strlen(rest) + 2);
+                sprintf(expanded_line, "%s %s", alias_expanded, rest);
+            } else {
+                expanded_line = strdup(alias_expanded);
+            }
+
+            free(line_copy);
+            line = expanded_line;
+        } else {
+            free(line_copy);
+            line_copy = strdup(line);
+        }
+    } else {
+        free(line_copy);
+    }
 
     cmdline = shell_parse_command_line(line);
     if (!cmdline || cmdline->cmd_count == 0) {
+        if (expanded_line) free(expanded_line);
         return 1;
     }
 
@@ -240,17 +277,19 @@ int shell_execute_line(char *line) {
             if (cmd->args[0] && strcmp(cmd->args[0], builtin_str[i]) == 0) {
                 result = (*builtin_func[i])(cmd->args);
                 free_command_line(cmdline);
+                if (expanded_line) free(expanded_line);
                 return result;
             }
         }
 
-        result = shell_launch_command(cmd);
+        result = shell_launch_command(cmd, line);
     } else {
         /* 多管道命令 */
         result = shell_launch_pipeline(cmdline);
     }
 
     free_command_line(cmdline);
+    if (expanded_line) free(expanded_line);
     return result;
 }
 

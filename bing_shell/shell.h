@@ -145,6 +145,15 @@ int shell_cd(char **args);
 int shell_help(char **args);
 int shell_exit(char **args);
 int shell_history(char **args);
+int shell_jobs(char **args);
+
+/* 别名展开 */
+char *shell_expand_alias(const char *cmd);
+
+/* 后台任务管理 */
+void shell_add_job(pid_t pid, const char *cmd);
+void shell_remove_job(pid_t pid);
+void shell_update_jobs(void);
 
 #endif /* SHELL_H */
 

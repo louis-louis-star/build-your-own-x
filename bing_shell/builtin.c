@@ -1,7 +1,7 @@
 /**
  * builtin.c - 内置命令模块
  *
- * 功能：实现shell内置命令（cd, help, exit, history等）
+ * 功能：实现shell内置命令（cd, help, exit, history, jobs等）
  */
 
 #include "shell.h"
@@ -12,7 +12,8 @@ char *builtin_str[] = {
     "cd",
     "help",
     "exit",
-    "history"
+    "history",
+    "jobs"
 };
 
 /* 内置命令函数指针列表 */
@@ -20,8 +21,36 @@ int (*builtin_func[])(char **) = {
     &shell_cd,
     &shell_help,
     &shell_exit,
-    &shell_history
+    &shell_history,
+    &shell_jobs
 };
+
+/* 别名定义 */
+typedef struct {
+    char *alias;
+    char *command;
+} Alias;
+
+static Alias aliases[] = {
+    {"ll", "ls -alF"},
+    {"la", "ls -A"},
+    {"l", "ls -CF"},
+    {NULL, NULL}
+};
+
+/**
+ * 检查并展开别名
+ * @return 展开后的命令字符串，如无别名返回NULL
+ */
+char *shell_expand_alias(const char *cmd) {
+    int i;
+    for (i = 0; aliases[i].alias != NULL; i++) {
+        if (strcmp(cmd, aliases[i].alias) == 0) {
+            return aliases[i].command;
+        }
+    }
+    return NULL;
+}
 
 /**
  * 获取内置命令数量
@@ -73,13 +102,22 @@ int shell_help(char **args) {
             printf("- exit the shell\n");
         } else if (strcmp(builtin_str[i], "history") == 0) {
             printf("- show command history\n");
+        } else if (strcmp(builtin_str[i], "jobs") == 0) {
+            printf("- show background jobs\n");
         }
     }
+
+    printf("\nAliased commands:\n");
+    printf("  ll         - ls -alF\n");
+    printf("  la         - ls -A\n");
+    printf("  l          - ls -CF\n");
+
     printf("\nFeatures:\n");
     printf("  - Tab completion for built-in commands\n");
     printf("  - Arrow keys for history navigation\n");
     printf("  - Ctrl+L to clear screen\n");
     printf("  - ~ expansion in paths\n");
+    printf("  - Pipes (|), redirects (<, >, >>), background (&)\n");
 
     return 1;
 }

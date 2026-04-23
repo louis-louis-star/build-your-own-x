@@ -7,7 +7,7 @@ LDFLAGS = -lreadline -lhistory
 TARGET = bing_shell
 
 # 源文件
-SRCS = main.c readline.c parse.c execute.c builtin.c prompt.c signal.c
+SRCS = main.c readline.c parse.c execute.c builtin.c prompt.c signal.c jobs.c
 OBJS = $(SRCS:.c=.o)
 
 # 默认目标：编译所有文件并链接
