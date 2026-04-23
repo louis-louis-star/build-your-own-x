@@ -1,28 +1,26 @@
 /**
  * builtin.c - 内置命令模块
- * 
- * 功能：实现shell内置命令（cd, help, exit等）
- * 
- * 扩展指南：
- *   1. 在 builtin_str 数组中添加命令名
- *   2. 在 builtin_func 数组中添加对应的函数指针
- *   3. 实现新的命令函数
+ *
+ * 功能：实现shell内置命令（cd, help, exit, history等）
  */
 
 #include "shell.h"
+#include <readline/history.h>
 
 /* 内置命令字符串列表 */
 char *builtin_str[] = {
     "cd",
     "help",
-    "exit"
+    "exit",
+    "history"
 };
 
 /* 内置命令函数指针列表 */
 int (*builtin_func[])(char **) = {
     &shell_cd,
     &shell_help,
-    &shell_exit
+    &shell_exit,
+    &shell_history
 };
 
 /**
@@ -33,16 +31,47 @@ int shell_num_builtins(void) {
 }
 
 /**
- * 内置命令：cd - 切换工作目录
+ * 展开路径中的 ~ 为家目录
  */
-int shell_cd(char **args) {
-    if (args[1] == NULL) {
-        fprintf(stderr, "bing_shell: expected argument to \"cd\"\n");
-    } else {
-        if (chdir(args[1]) != 0) {
-            perror("bing_shell");
+char *shell_expand_tilde(const char *path) {
+    static char expanded[PATH_MAX];
+
+    if (path[0] == '~') {
+        char *home = getenv("HOME");
+        if (home) {
+            if (path[1] == '\0') {
+                return home;
+            } else {
+                snprintf(expanded, sizeof(expanded), "%s%s", home, path + 1);
+                return expanded;
+            }
         }
     }
+
+    return (char *)path;
+}
+
+/**
+ * 内置命令：cd - 切换工作目录
+ * 支持 ~ 展开
+ */
+int shell_cd(char **args) {
+    char *path;
+
+    if (args[1] == NULL) {
+        path = getenv("HOME");
+        if (!path) {
+            fprintf(stderr, "bing_shell: HOME not set\n");
+            return 1;
+        }
+    } else {
+        path = shell_expand_tilde(args[1]);
+    }
+
+    if (chdir(path) != 0) {
+        perror("bing_shell");
+    }
+
     return 1;
 }
 
@@ -51,26 +80,46 @@ int shell_cd(char **args) {
  */
 int shell_help(char **args) {
     int i;
-    (void)args;  /* 未使用的参数 */
+    (void)args;
 
-    printf("bing_shell - A simple Unix shell written in C\n");
-    printf("\n");
-    printf("Usage: type program names and arguments, then hit enter.\n");
-    printf("\n");
+    printf("bing_shell - A simple Unix shell written in C\n\n");
     printf("Built-in commands:\n");
     for (i = 0; i < shell_num_builtins(); i++) {
-        printf("  %-10s - ", builtin_str[i]);
+        printf("  %-10s ", builtin_str[i]);
         if (strcmp(builtin_str[i], "cd") == 0) {
-            printf("change directory\n");
+            printf("- change directory (supports ~)\n");
         } else if (strcmp(builtin_str[i], "help") == 0) {
-            printf("show this help message\n");
+            printf("- show this help message\n");
         } else if (strcmp(builtin_str[i], "exit") == 0) {
-            printf("exit the shell\n");
+            printf("- exit the shell\n");
+        } else if (strcmp(builtin_str[i], "history") == 0) {
+            printf("- show command history\n");
         }
     }
-    printf("\n");
-    printf("Use 'man <command>' for more information on external commands.\n");
-    
+    printf("\nFeatures:\n");
+    printf("  - Tab completion for built-in commands\n");
+    printf("  - Arrow keys for history navigation\n");
+    printf("  - Ctrl+L to clear screen\n");
+    printf("  - ~ expansion in paths\n");
+
+    return 1;
+}
+
+/**
+ * 内置命令：history - 显示命令历史
+ */
+int shell_history(char **args) {
+    HIST_ENTRY **list;
+    int i;
+    (void)args;
+
+    list = history_list();
+    if (list) {
+        for (i = 0; list[i]; i++) {
+            printf("%5d  %s\n", i + 1, list[i]->line);
+        }
+    }
+
     return 1;
 }
 
@@ -78,7 +127,7 @@ int shell_help(char **args) {
  * 内置命令：exit - 退出shell
  */
 int shell_exit(char **args) {
-    (void)args;  /* 未使用的参数 */
+    (void)args;
     return 0;
 }
 

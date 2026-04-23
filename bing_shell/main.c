@@ -1,6 +1,6 @@
 /**
  * main.c - 主程序入口
- * 
+ *
  * 功能：shell主循环和初始化
  */
 
@@ -12,17 +12,20 @@
  */
 void shell_loop(void) {
     char *line;
-    char **args;
     int status;
 
     do {
-        printf("bing_shell> ");
         line = shell_read_line();
-        args = shell_split_line(line);
-        status = shell_execute(args);
+        if (!line) {
+            /* EOF (Ctrl+D) */
+            printf("\n");
+            break;
+        }
+
+        /* 使用支持管道的执行函数 */
+        status = shell_execute_line(line);
 
         free(line);
-        free(args);
     } while (status);
 }
 
@@ -30,11 +33,20 @@ void shell_loop(void) {
  * 程序入口
  */
 int main(int argc, char **argv) {
-    (void)argc;  /* 未使用的参数 */
-    (void)argv;  /* 未使用的参数 */
+    (void)argc;
+    (void)argv;
+
+    /* 初始化信号处理 */
+    shell_init_signals();
+
+    /* 初始化 readline */
+    shell_readline_init();
 
     /* 运行主循环 */
     shell_loop();
+
+    /* 清理资源 */
+    shell_readline_cleanup();
 
     return EXIT_SUCCESS;
 }

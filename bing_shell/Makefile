@@ -3,17 +3,18 @@
 
 CC = gcc
 CFLAGS = -Wall -Wextra -g
+LDFLAGS = -lreadline -lhistory
 TARGET = bing_shell
 
 # 源文件
-SRCS = main.c readline.c parse.c execute.c builtin.c
+SRCS = main.c readline.c parse.c execute.c builtin.c prompt.c signal.c
 OBJS = $(SRCS:.c=.o)
 
 # 默认目标：编译所有文件并链接
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # 编译.c文件为.o文件
 %.o: %.c shell.h
