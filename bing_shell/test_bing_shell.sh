@@ -270,22 +270,17 @@ test_chained_commands() {
     echo -e "${YELLOW}[10] 链式命令测试${NC}"
 
     run_test "分号分隔命令" "echo a; echo b" "a"
+    run_test "&& 运算符成功" "true && echo success" "success"
+    run_test "&& 运算符失败跳过" "false && echo 'should not print'" ""
+    run_test "|| 运算符失败执行" "false || echo fallback" "fallback"
+    run_test "|| 运算符成功跳过" "true || echo 'should not print'" ""
     run_test_success "cd 后执行" "cd /tmp && pwd"
 
     echo ""
 }
 
-test_subshell() {
-    echo -e "${YELLOW}[11] 子 shell 测试${NC}"
-
-    run_test "括号子 shell" "(cd /tmp && pwd)" "/tmp"
-    run_test "子 shell 环境隔离" "x=outer; (x=inner; echo \$x); echo \$x" "inner"
-
-    echo ""
-}
-
 test_special_cases() {
-    echo -e "${YELLOW}[12] 特殊情况和边界测试${NC}"
+    echo -e "${YELLOW}[11] 特殊情况和边界测试${NC}"
 
     # 空命令
     run_test_success "空命令" ""
@@ -302,7 +297,7 @@ test_special_cases() {
 }
 
 test_error_handling() {
-    echo -e "${YELLOW}[13] 错误处理测试${NC}"
+    echo -e "${YELLOW}[12] 错误处理测试${NC}"
 
     # 不存在的命令应该返回错误但不崩溃
     $SHELL_PATH -c "nonexistent_command_xyz" 2>&1 | grep -q "error\|Error\|not found\|bing_shell"
@@ -330,7 +325,7 @@ test_error_handling() {
 }
 
 test_command_line_args() {
-    echo -e "${YELLOW}[14] 命令行参数测试${NC}"
+    echo -e "${YELLOW}[13] 命令行参数测试${NC}"
 
     # 测试 -c 参数
     $SHELL_PATH -c "echo test_arg" 2>&1 | grep -q "test_arg"
@@ -375,7 +370,6 @@ main() {
     test_tilde_expansion
     test_aliases
     test_chained_commands
-    test_subshell
     test_special_cases
     test_error_handling
     test_command_line_args

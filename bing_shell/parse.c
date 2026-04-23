@@ -81,33 +81,82 @@ char **shell_expand_wildcards(char **args, int *argc) {
 }
 
 /**
- * 去除字符串两端的引号
+ * 解析带引号的参数
+ * 从字符串中提取一个参数，正确处理引号
+ * 返回: 下一个参数的起始位置，NULL 表示结束
  */
-static char *strip_quotes(char *str) {
-    if (!str) return NULL;
+static char *parse_quoted_arg(char *str, char **arg_out) {
+    char *p = str;
+    char quote = 0;
+    char *result;
+    int result_len = 0;
+    int result_size = 256;
 
-    size_t len = strlen(str);
-    if (len < 2) return str;
+    /* 跳过前导空白 */
+    while (*p == ' ' || *p == '\t') p++;
 
-    /* 检查是否被单引号或双引号包围 */
-    if ((str[0] == '"' && str[len-1] == '"') ||
-        (str[0] == '\'' && str[len-1] == '\'')) {
-        /* 移动字符串内容，覆盖开头的引号 */
-        memmove(str, str + 1, len - 2);
-        str[len - 2] = '\0';
+    if (*p == '\0') {
+        *arg_out = NULL;
+        return NULL;
     }
 
-    return str;
+    result = malloc(result_size);
+
+    /* 解析参数 */
+    while (*p != '\0') {
+        /* 检查引号 */
+        if ((*p == '"' || *p == '\'') && quote == 0) {
+            quote = *p;
+            p++;
+            continue;
+        }
+
+        /* 检查引号结束 */
+        if (quote != 0 && *p == quote) {
+            quote = 0;
+            p++;
+            continue;
+        }
+
+        /* 如果不在引号内，检查分隔符 */
+        if (quote == 0) {
+            if (*p == ' ' || *p == '\t') {
+                break;
+            }
+            /* 检查特殊字符 */
+            if (*p == '<' || *p == '>' || *p == '|' || *p == '&') {
+                /* 如果已经有内容，停止；否则单独返回这个字符 */
+                if (result_len > 0) break;
+                result[result_len++] = *p++;
+                break;
+            }
+        }
+
+        /* 添加字符到结果 */
+        if (result_len >= result_size - 1) {
+            result_size *= 2;
+            result = realloc(result, result_size);
+        }
+        result[result_len++] = *p++;
+    }
+
+    result[result_len] = '\0';
+    *arg_out = result;
+
+    /* 跳过尾部空白 */
+    while (*p == ' ' || *p == '\t') p++;
+
+    return p;
 }
 
 /**
- * 解析单个命令（处理重定向）
+ * 解析单个命令（处理重定向和引号）
  */
 static int parse_single_command(char *cmd_str, Command *cmd) {
     int bufsize = SHELL_TOK_BUFSIZE;
     int argc = 0;
-    char *token;
-    char *saveptr;
+    char *p = cmd_str;
+    char *arg;
 
     cmd->args = malloc(bufsize * sizeof(char *));
     cmd->input_file = NULL;
@@ -119,49 +168,57 @@ static int parse_single_command(char *cmd_str, Command *cmd) {
         return -1;
     }
 
-    token = strtok_r(cmd_str, " \t", &saveptr);
-    while (token != NULL) {
+    while (*p != '\0') {
+        /* 跳过空白 */
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '\0') break;
+
         /* 输入重定向 */
-        if (strcmp(token, "<") == 0) {
-            token = strtok_r(NULL, " \t", &saveptr);
-            if (token) {
-                cmd->input_file = strdup(strip_quotes(token));
-            }
-        }
-        /* 输出重定向（覆盖） */
-        else if (strcmp(token, ">") == 0) {
-            token = strtok_r(NULL, " \t", &saveptr);
-            if (token) {
-                cmd->output_file = strdup(strip_quotes(token));
-                cmd->append_output = false;
+        if (strcmp(p, "<") == 0 || strncmp(p, "< ", 2) == 0) {
+            p++; /* 跳过 < */
+            while (*p == ' ' || *p == '\t') p++;
+            p = parse_quoted_arg(p, &arg);
+            if (arg) {
+                cmd->input_file = arg;
             }
         }
         /* 输出重定向（追加） */
-        else if (strcmp(token, ">>") == 0) {
-            token = strtok_r(NULL, " \t", &saveptr);
-            if (token) {
-                cmd->output_file = strdup(strip_quotes(token));
+        else if (strncmp(p, ">>", 2) == 0) {
+            p += 2; /* 跳过 >> */
+            while (*p == ' ' || *p == '\t') p++;
+            p = parse_quoted_arg(p, &arg);
+            if (arg) {
+                cmd->output_file = arg;
                 cmd->append_output = true;
             }
         }
-        /* 后台运行 */
-        else if (strcmp(token, "&") == 0) {
+        /* 输出重定向（覆盖） */
+        else if (*p == '>') {
+            p++; /* 跳过 > */
+            while (*p == ' ' || *p == '\t') p++;
+            p = parse_quoted_arg(p, &arg);
+            if (arg) {
+                cmd->output_file = arg;
+                cmd->append_output = false;
+            }
+        }
+        /* 后台运行 - 单独的 & */
+        else if (*p == '&' && (*(p+1) == '\0' || *(p+1) == ' ' || *(p+1) == '\t')) {
             cmd->background = true;
+            p++;
         }
         /* 普通参数 */
         else {
-            cmd->args[argc] = strdup(token);
-            /* 去除参数的引号 */
-            strip_quotes(cmd->args[argc]);
-            argc++;
+            p = parse_quoted_arg(p, &arg);
+            if (arg) {
+                cmd->args[argc++] = arg;
 
-            if (argc >= bufsize) {
-                bufsize += SHELL_TOK_BUFSIZE;
-                cmd->args = realloc(cmd->args, bufsize * sizeof(char *));
+                if (argc >= bufsize) {
+                    bufsize += SHELL_TOK_BUFSIZE;
+                    cmd->args = realloc(cmd->args, bufsize * sizeof(char *));
+                }
             }
         }
-
-        token = strtok_r(NULL, " \t", &saveptr);
     }
 
     cmd->args[argc] = NULL;

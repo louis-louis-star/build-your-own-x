@@ -242,13 +242,58 @@ int shell_execute(char **args) {
 }
 
 /**
- * 执行命令行（支持变量展开、别名、管道、重定向、后台运行）
+ * 执行单个简单命令行（不支持 && || ;）
+ */
+static int shell_execute_simple(char *line) {
+    CommandLine *cmdline;
+    int result = 0;
+
+    /* 解析命令行 */
+    cmdline = shell_parse_command_line(line);
+    if (!cmdline || cmdline->cmd_count == 0) {
+        return 0;
+    }
+
+    /* 单个命令 */
+    if (cmdline->cmd_count == 1) {
+        Command *cmd = &cmdline->commands[0];
+
+        /* 通配符展开 */
+        cmd->args = shell_expand_wildcards(cmd->args, &cmd->argc);
+
+        if (cmd->args[0] == NULL) {
+            free_command_line(cmdline);
+            return 0;
+        }
+
+        /* 检查内置命令 */
+        for (int i = 0; i < shell_num_builtins(); i++) {
+            if (strcmp(cmd->args[0], builtin_str[i]) == 0) {
+                result = (*builtin_func[i])(cmd->args);
+                last_exit_status = result ? 0 : 1;
+                free_command_line(cmdline);
+                return result;
+            }
+        }
+
+        result = shell_launch_command(cmd, line);
+    } else {
+        result = shell_launch_pipeline(cmdline);
+    }
+
+    free_command_line(cmdline);
+    return result;
+}
+
+/**
+ * 执行命令行（支持变量展开、别名、管道、重定向、后台运行、&&、||、;）
  */
 int shell_execute_line(char *line) {
-    CommandLine *cmdline;
-    int result;
     char *expanded_line = NULL;
     char *var_expanded = NULL;
+    char *p, *cmd_start;
+    char saved_char;
+    int result = 0;
 
     shell_update_jobs();
 
@@ -279,43 +324,91 @@ int shell_execute_line(char *line) {
         free(line_copy);
     }
 
-    /* 解析命令行 */
-    cmdline = shell_parse_command_line(var_expanded);
-    if (!cmdline || cmdline->cmd_count == 0) {
-        free(var_expanded);
-        return 1;
-    }
+    /* 解析并执行命令，支持 && || ; 分隔符 */
+    p = var_expanded;
+    cmd_start = p;
 
-    /* 单个命令 */
-    if (cmdline->cmd_count == 1) {
-        Command *cmd = &cmdline->commands[0];
-
-        /* 通配符展开 */
-        cmd->args = shell_expand_wildcards(cmd->args, &cmd->argc);
-
-        if (cmd->args[0] == NULL) {
-            free_command_line(cmdline);
-            free(var_expanded);
-            return 1;
+    while (*p != '\0') {
+        /* 检测分隔符 */
+        if (*p == ';' && (p == var_expanded || *(p-1) != '\\')) {
+            /* 分号：执行前面的命令 */
+            saved_char = *(p+1);
+            *(p+1) = '\0';
+            result = shell_execute_simple(cmd_start);
+            last_exit_status = result;
+            *(p+1) = saved_char;
+            p++;
+            while (*p == ' ' || *p == '\t') p++;
+            cmd_start = p;
         }
-
-        /* 检查内置命令 */
-        for (int i = 0; i < shell_num_builtins(); i++) {
-            if (strcmp(cmd->args[0], builtin_str[i]) == 0) {
-                result = (*builtin_func[i])(cmd->args);
-                last_exit_status = result ? 0 : 1;
-                free_command_line(cmdline);
-                free(var_expanded);
-                return result;
+        else if (*p == '&' && *(p+1) == '&') {
+            /* && : 前面命令成功才执行 */
+            *p = '\0';
+            result = shell_execute_simple(cmd_start);
+            last_exit_status = result;
+            *p = '&';
+            p += 2;
+            while (*p == ' ' || *p == '\t') p++;
+            cmd_start = p;
+            if (last_exit_status != 0) {
+                /* 跳过下一个命令，找到下一个分隔符 */
+                while (*p != '\0' && *p != ';' && !(*p == '&' && *(p+1) == '&') && !(*p == '|' && *(p+1) == '|')) {
+                    p++;
+                }
+                if (*p == ';') {
+                    p++;
+                    while (*p == ' ' || *p == '\t') p++;
+                    cmd_start = p;
+                } else if (*p == '&' && *(p+1) == '&') {
+                    p += 2;
+                    while (*p == ' ' || *p == '\t') p++;
+                    cmd_start = p;
+                } else if (*p == '|' && *(p+1) == '|') {
+                    p += 2;
+                    while (*p == ' ' || *p == '\t') p++;
+                    cmd_start = p;
+                }
             }
         }
-
-        result = shell_launch_command(cmd, var_expanded);
-    } else {
-        result = shell_launch_pipeline(cmdline);
+        else if (*p == '|' && *(p+1) == '|') {
+            /* || : 前面命令失败才执行 */
+            *p = '\0';
+            result = shell_execute_simple(cmd_start);
+            last_exit_status = result;
+            *p = '|';
+            p += 2;
+            while (*p == ' ' || *p == '\t') p++;
+            cmd_start = p;
+            if (last_exit_status == 0) {
+                /* 跳过下一个命令 */
+                while (*p != '\0' && *p != ';' && !(*p == '&' && *(p+1) == '&') && !(*p == '|' && *(p+1) == '|')) {
+                    p++;
+                }
+                if (*p == ';') {
+                    p++;
+                    while (*p == ' ' || *p == '\t') p++;
+                    cmd_start = p;
+                } else if (*p == '&' && *(p+1) == '&') {
+                    p += 2;
+                    while (*p == ' ' || *p == '\t') p++;
+                    cmd_start = p;
+                } else if (*p == '|' && *(p+1) == '|') {
+                    p += 2;
+                    while (*p == ' ' || *p == '\t') p++;
+                    cmd_start = p;
+                }
+            }
+        }
+        else {
+            p++;
+        }
     }
 
-    free_command_line(cmdline);
+    /* 执行最后一个命令 */
+    if (*cmd_start != '\0') {
+        result = shell_execute_simple(cmd_start);
+    }
+
     free(var_expanded);
     return result;
 }
