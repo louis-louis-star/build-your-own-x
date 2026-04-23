@@ -17,13 +17,17 @@
 #include <linux/limits.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <signal.h>
+#include <glob.h>
 
 /* 缓冲区大小定义 */
 #define SHELL_TOK_BUFSIZE 64
 #define SHELL_TOK_DELIM " \t\r\n\a"
 #define HISTORY_FILE ".bing_shell_history"
+#define CONFIG_FILE ".bingshellrc"
 #define MAX_HISTORY 1000
 #define MAX_PIPES 10
+#define MAX_JOBS 100
 
 /* ANSI 颜色代码 */
 #define COLOR_RED     "\033[1;31m"
@@ -37,123 +41,78 @@
 
 /* 命令结构体 */
 typedef struct {
-    char **args;        /* 参数数组 */
-    int argc;           /* 参数数量 */
-    char *input_file;   /* 输入重定向文件 */
-    char *output_file;  /* 输出重定向文件 */
-    bool append_output; /* 是否追加输出 */
-    bool background;    /* 是否后台运行 */
+    char **args;
+    int argc;
+    char *input_file;
+    char *output_file;
+    bool append_output;
+    bool background;
 } Command;
 
 /* 命令行结构体 */
 typedef struct {
-    Command *commands;  /* 命令数组 */
-    int cmd_count;      /* 命令数量 */
-    bool has_pipe;      /* 是否有管道 */
+    Command *commands;
+    int cmd_count;
+    bool has_pipe;
 } CommandLine;
 
-/* ===== prompt.c ===== */
-/**
- * 生成提示符字符串
- * @param buf 缓冲区
- * @param size 缓冲区大小
- */
+/* 任务状态 */
+typedef enum { JOB_RUNNING, JOB_STOPPED, JOB_DONE } JobState;
+
+/* 任务结构 */
+typedef struct {
+    pid_t pid;
+    int job_id;
+    char command[256];
+    JobState state;
+    int active;
+} Job;
+
+/* 全局变量 */
+extern int last_exit_status;
+extern Job jobs[MAX_JOBS];
+extern int job_count;
+extern pid_t current_foreground_pid;
+
+/* 函数声明 */
 void shell_get_prompt(char *buf, int size);
-
-/* ===== signal.c ===== */
-/**
- * 初始化信号处理
- */
 void shell_init_signals(void);
-
-/* ===== readline.c ===== */
-/**
- * 初始化readline
- */
+void shell_set_foreground(pid_t pid);
 void shell_readline_init(void);
-
-/**
- * 清理readline资源
- */
 void shell_readline_cleanup(void);
-
-/**
- * 读取一行用户输入
- * @return 动态分配的字符串，调用者需要free
- */
 char *shell_read_line(void);
-
-/* ===== parse.c ===== */
-/**
- * 解析命令行字符串为参数数组
- * 使用空格、制表符等作为分隔符
- */
 char **shell_split_line(char *line);
-
-/**
- * 展开路径中的 ~ 为家目录
- * @param path 路径字符串
- * @return 展开后的路径，调用者需要free
- */
 char *shell_expand_tilde(const char *path);
-
-/**
- * 解析完整命令行（支持多管道、重定向、后台运行）
- */
 CommandLine *shell_parse_command_line(char *line);
-
-/**
- * 释放命令行结构体
- */
 void free_command_line(CommandLine *cmdline);
-
-/* ===== execute.c ===== */
-/**
- * 启动外部进程执行命令
- * @param args 参数数组
- * @return 1表示继续执行，0表示退出
- */
+char *shell_expand_variables(const char *str);
+char **shell_expand_wildcards(char **args, int *argc);
 int shell_launch(char **args);
-
-/**
- * 执行单条命令（内置命令或外部命令）
- */
 int shell_execute_single(char **args);
-
-/**
- * 执行命令（内置命令或外部命令）
- * @param args 参数数组
- * @return 1表示继续执行，0表示退出
- */
 int shell_execute(char **args);
-
-/**
- * 执行命令行（支持管道）
- * @param line 原始命令行
- * @return 1表示继续执行，0表示退出
- */
 int shell_execute_line(char *line);
-
-/* ===== builtin.c ===== */
-/**
- * 获取内置命令数量
- */
 int shell_num_builtins(void);
-
-/* 内置命令函数 */
+char *shell_expand_alias(const char *cmd);
 int shell_cd(char **args);
 int shell_help(char **args);
 int shell_exit(char **args);
 int shell_history(char **args);
 int shell_jobs(char **args);
-
-/* 别名展开 */
-char *shell_expand_alias(const char *cmd);
-
-/* 后台任务管理 */
-void shell_add_job(pid_t pid, const char *cmd);
+int shell_fg(char **args);
+int shell_bg(char **args);
+int shell_export(char **args);
+int shell_unset(char **args);
+int shell_add_job(pid_t pid, const char *cmd);
 void shell_remove_job(pid_t pid);
 void shell_update_jobs(void);
+int shell_find_job_by_id(int job_id);
+void shell_stop_job(pid_t pid);
+void shell_continue_job(pid_t pid, int foreground);
+void shell_init_env(void);
+char *shell_getenv(const char *name);
+int shell_setenv(const char *name, const char *value);
+int shell_unsetenv(const char *name);
+void shell_load_config(void);
 
 #endif /* SHELL_H */
 

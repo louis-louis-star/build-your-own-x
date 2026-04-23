@@ -1,19 +1,83 @@
 /**
  * parse.c - 命令行解析模块
  *
- * 功能：解析命令行，支持多管道、重定向、后台运行
+ * 功能：解析命令行，支持引号、变量展开、通配符、管道、重定向
  */
 
 #include "shell.h"
 
-/**
- * 跳过空白字符
- */
+/* 跳过空白字符 */
 static char *skip_whitespace(char *str) {
-    while (*str == ' ' || *str == '\t') {
-        str++;
-    }
+    while (*str == ' ' || *str == '\t') str++;
     return str;
+}
+
+/* 展开变量 $VAR 和 $? */
+char *shell_expand_variables(const char *str) {
+    static char result[4096];
+    char *out = result;
+    const char *p = str;
+
+    while (*p && (out - result) < (int)sizeof(result) - 1) {
+        if (*p == '$') {
+            p++;
+            if (*p == '?') {
+                out += sprintf(out, "%d", last_exit_status);
+                p++;
+            } else if (*p == '{') {
+                p++;
+                char varname[256];
+                int i = 0;
+                while (*p && *p != '}' && i < 255) varname[i++] = *p++;
+                varname[i] = '\0';
+                if (*p == '}') p++;
+                char *val = shell_getenv(varname);
+                if (val) out += sprintf(out, "%s", val);
+            } else if (isalnum(*p) || *p == '_') {
+                char varname[256];
+                int i = 0;
+                while ((isalnum(*p) || *p == '_') && i < 255) varname[i++] = *p++;
+                varname[i] = '\0';
+                char *val = shell_getenv(varname);
+                if (val) out += sprintf(out, "%s", val);
+            } else {
+                *out++ = '$';
+            }
+        } else {
+            *out++ = *p++;
+        }
+    }
+    *out = '\0';
+    return result;
+}
+
+/* 通配符展开 */
+char **shell_expand_wildcards(char **args, int *argc) {
+    if (!args || !argc) return args;
+
+    char **new_args = malloc(SHELL_TOK_BUFSIZE * sizeof(char *));
+    int new_argc = 0;
+
+    for (int i = 0; args[i] && new_argc < SHELL_TOK_BUFSIZE - 1; i++) {
+        if (strchr(args[i], '*') || strchr(args[i], '?') || strchr(args[i], '[')) {
+            glob_t globbuf;
+            if (glob(args[i], GLOB_NOCHECK | GLOB_TILDE, NULL, &globbuf) == 0) {
+                for (size_t j = 0; j < globbuf.gl_pathc && new_argc < SHELL_TOK_BUFSIZE - 1; j++) {
+                    new_args[new_argc++] = strdup(globbuf.gl_pathv[j]);
+                }
+                globfree(&globbuf);
+            } else {
+                new_args[new_argc++] = strdup(args[i]);
+            }
+        } else {
+            new_args[new_argc++] = strdup(args[i]);
+        }
+        free(args[i]);
+    }
+    new_args[new_argc] = NULL;
+    free(args);
+    *argc = new_argc;
+    return new_args;
 }
 
 /**
