@@ -31,27 +31,6 @@ int shell_num_builtins(void) {
 }
 
 /**
- * 展开路径中的 ~ 为家目录
- */
-char *shell_expand_tilde(const char *path) {
-    static char expanded[PATH_MAX];
-
-    if (path[0] == '~') {
-        char *home = getenv("HOME");
-        if (home) {
-            if (path[1] == '\0') {
-                return home;
-            } else {
-                snprintf(expanded, sizeof(expanded), "%s%s", home, path + 1);
-                return expanded;
-            }
-        }
-    }
-
-    return (char *)path;
-}
-
-/**
  * 内置命令：cd - 切换工作目录
  * 支持 ~ 展开
  */
