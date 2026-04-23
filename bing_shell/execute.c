@@ -243,14 +243,20 @@ int shell_execute(char **args) {
 
 /**
  * 执行单个简单命令行（不支持 && || ;）
+ * 在这里进行变量展开，确保 export 后的变量能被后续命令使用
  */
 static int shell_execute_simple(char *line) {
     CommandLine *cmdline;
     int result = 0;
+    char *var_expanded;
+
+    /* 变量展开 - 在每个简单命令执行前展开 */
+    var_expanded = strdup(shell_expand_variables(line));
 
     /* 解析命令行 */
-    cmdline = shell_parse_command_line(line);
+    cmdline = shell_parse_command_line(var_expanded);
     if (!cmdline || cmdline->cmd_count == 0) {
+        free(var_expanded);
         return 0;
     }
 
@@ -263,6 +269,7 @@ static int shell_execute_simple(char *line) {
 
         if (cmd->args[0] == NULL) {
             free_command_line(cmdline);
+            free(var_expanded);
             return 0;
         }
 
@@ -272,36 +279,35 @@ static int shell_execute_simple(char *line) {
                 result = (*builtin_func[i])(cmd->args);
                 last_exit_status = result ? 0 : 1;
                 free_command_line(cmdline);
+                free(var_expanded);
                 return result;
             }
         }
 
-        result = shell_launch_command(cmd, line);
+        result = shell_launch_command(cmd, var_expanded);
     } else {
         result = shell_launch_pipeline(cmdline);
     }
 
     free_command_line(cmdline);
+    free(var_expanded);
     return result;
 }
 
 /**
- * 执行命令行（支持变量展开、别名、管道、重定向、后台运行、&&、||、;）
+ * 执行命令行（支持别名、管道、重定向、后台运行、&&、||、;）
+ * 变量展开在每个简单命令执行时进行，确保 export 后的变量能被后续命令使用
  */
 int shell_execute_line(char *line) {
     char *expanded_line = NULL;
-    char *var_expanded = NULL;
+    char *work_line = NULL;
     char *p, *cmd_start;
-    char saved_char;
     int result = 0;
 
     shell_update_jobs();
 
-    /* 变量展开 */
-    var_expanded = strdup(shell_expand_variables(line));
-
-    /* 别名展开 */
-    char *line_copy = strdup(var_expanded);
+    /* 别名展开（只需要对第一个命令进行） */
+    char *line_copy = strdup(line);
     char *first_word = strtok(line_copy, " \t");
 
     if (first_word) {
@@ -315,28 +321,28 @@ int shell_execute_line(char *line) {
                 expanded_line = strdup(alias_expanded);
             }
             free(line_copy);
-            free(var_expanded);
-            var_expanded = expanded_line;
+            work_line = expanded_line;
         } else {
             free(line_copy);
+            work_line = strdup(line);
         }
     } else {
         free(line_copy);
+        work_line = strdup(line);
     }
 
     /* 解析并执行命令，支持 && || ; 分隔符 */
-    p = var_expanded;
+    p = work_line;
     cmd_start = p;
 
     while (*p != '\0') {
         /* 检测分隔符 */
-        if (*p == ';' && (p == var_expanded || *(p-1) != '\\')) {
+        if (*p == ';' && (p == work_line || *(p-1) != '\\')) {
             /* 分号：执行前面的命令 */
-            saved_char = *(p+1);
-            *(p+1) = '\0';
+            *p = '\0';
             result = shell_execute_simple(cmd_start);
             last_exit_status = result;
-            *(p+1) = saved_char;
+            *p = ';';
             p++;
             while (*p == ' ' || *p == '\t') p++;
             cmd_start = p;
@@ -409,7 +415,7 @@ int shell_execute_line(char *line) {
         result = shell_execute_simple(cmd_start);
     }
 
-    free(var_expanded);
+    free(work_line);
     return result;
 }
 

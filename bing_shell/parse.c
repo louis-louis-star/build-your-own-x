@@ -120,7 +120,7 @@ static char *parse_quoted_arg(char *str, char **arg_out) {
 
         /* 如果不在引号内，检查分隔符 */
         if (quote == 0) {
-            if (*p == ' ' || *p == '\t') {
+            if (*p == ' ' || *p == '\t' || *p == ';') {
                 break;
             }
             /* 检查特殊字符 */
