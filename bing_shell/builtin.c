@@ -125,8 +125,11 @@ int shell_export(char **args) {
     char *name = args[1];
     char *value = eq + 1;
 
-    if (shell_setenv(name, value) != 0) perror("export");
-    return 1;
+    if (shell_setenv(name, value) != 0) {
+        perror("export");
+        return 1;
+    }
+    return 0;  /* 成功返回 0 */
 }
 
 int shell_unset(char **args) {
