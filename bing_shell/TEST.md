@@ -147,6 +147,43 @@ make clean && make
 | 14.3 | `cat < nonexistent.txt` | 输出错误信息 |
 | 14.4 | `fg %999` | 输出: fg: job 999 not found |
 
+### 15. 链式命令测试
+
+| 测试编号 | 测试命令 | 预期结果 |
+|---------|---------|---------|
+| 15.1 | `echo a; echo b` | 输出 a 和 b |
+| 15.2 | `true && echo success` | 输出: success |
+| 15.3 | `false && echo "not printed"` | 无输出 |
+| 15.4 | `false || echo fallback` | 输出: fallback |
+| 15.5 | `true || echo "not printed"` | 无输出 |
+
+### 16. 子 Shell 测试
+
+| 测试编号 | 测试命令 | 预期结果 |
+|---------|---------|---------|
+| 16.1 | `(cd /tmp && pwd)` | 输出: /tmp |
+| 16.2 | `export x=outer; (export x=inner; echo $x); echo $x` | 输出: inner 然后 outer |
+| 16.3 | `pwd; (cd /tmp); pwd` | 两次输出相同目录（子 shell 不影响父进程） |
+| 16.4 | `((echo nested))` | 输出: nested（嵌套子 shell） |
+
+### 17. 多行命令测试
+
+| 测试编号 | 测试步骤 | 预期结果 |
+|---------|---------|---------|
+| 17.1 | 输入 `echo hello \` 然后回车，再输入 `world` | 输出: hello world |
+| 17.2 | 输入多行带续行符的命令 | 正确拼接执行 |
+
+### 18. 外部命令测试
+
+| 测试编号 | 测试命令 | 预期结果 |
+|---------|---------|---------|
+| 18.1 | `chmod 755 file.txt` | 修改文件权限成功 |
+| 18.2 | `find . -name "*.txt"` | 查找文件成功 |
+| 18.3 | `grep "pattern" file.txt` | 搜索成功 |
+| 18.4 | `sed 's/old/new/' file.txt` | 替换成功 |
+| 18.5 | `awk '{print $1}' file.txt` | 处理成功 |
+| 18.6 | `tar -cvf archive.tar files` | 打包成功 |
+
 ---
 
 ## 自动化测试脚本
@@ -215,4 +252,14 @@ echo "=== 测试完成 ==="
 |-----|---------|---------|
 | | 引号没有去除 | 在 parse.c 添加 strip_quotes 函数 |
 | | Ctrl+Z 打印两遍 | 移除 execute.c 中重复的打印语句 |
+| | export 返回值错误 | 修改 export 成功时返回 0 |
+| | 变量拼接失败 | 修复 shell_launch_command 返回值问题 |
+
+## 新增功能
+
+| 版本 | 功能 | 描述 |
+|-----|------|------|
+| v1.1 | 多行命令 | 支持 `\` 续行符实现多行输入 |
+| v1.1 | 子 Shell | 支持 `(cmd)` 语法创建子进程执行命令 |
+| v1.0 | 基本功能 | 管道、重定向、后台任务、变量展开等 |
 

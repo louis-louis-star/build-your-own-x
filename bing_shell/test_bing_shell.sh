@@ -352,6 +352,43 @@ test_command_line_args() {
     echo ""
 }
 
+test_subshell() {
+    echo -e "${YELLOW}[14] 子 shell 测试${NC}"
+
+    run_test "括号子 shell" "(cd /tmp && pwd)" "/tmp"
+    run_test "子 shell 变量隔离" "export x=outer; (export x=inner; echo \$x); echo \$x" "inner"
+    run_test "子 shell 不影响父进程目录" "pwd; (cd /tmp); pwd" "/"
+    run_test "嵌套子 shell" "((echo nested))" "nested"
+
+    echo ""
+}
+
+test_multiline() {
+    echo -e "${YELLOW}[15] 多行命令测试${NC}"
+
+    # 测试 \ 续行符（通过 -c 参数模拟）
+    run_test "续行符 \\\\" "echo hello\\\\world" "helloworld"
+    run_test "续行符带空格" "echo hello\\\\ world" "hello world"
+
+    echo ""
+}
+
+test_external_commands() {
+    echo -e "${YELLOW}[16] 外部命令测试${NC}"
+
+    # 创建测试文件
+    touch "$TEST_DIR/chmod_test.txt"
+
+    run_test_success "chmod 命令" "chmod 755 $TEST_DIR/chmod_test.txt"
+    run_test_success "find 命令" "find $TEST_DIR -name '*.txt'"
+    run_test "grep 命令" "echo 'hello world' | grep hello" "hello"
+    run_test "sed 命令" "echo 'hello' | sed 's/hello/hi/'" "hi"
+    run_test "awk 命令" "echo 'a b c' | awk '{print \$1}'" "a"
+    run_test_success "tar 命令" "tar -cvf $TEST_DIR/test.tar -C $TEST_DIR ."
+
+    echo ""
+}
+
 ################################################################################
 # 主程序
 ################################################################################
@@ -373,6 +410,9 @@ main() {
     test_special_cases
     test_error_handling
     test_command_line_args
+    test_subshell
+    test_multiline
+    test_external_commands
 
     # 清理并打印结果
     teardown

@@ -76,20 +76,78 @@ void shell_readline_cleanup(void) {
 
 /**
  * 读取一行用户输入
- * 使用 readline 库，支持方向键、历史记录等
+ * 使用 readline 库，支持方向键、历史记录、多行续行
  */
 char *shell_read_line(void) {
     char prompt[256];
     char *line;
+    char *full_line = NULL;
+    size_t full_len = 0;
+    int continue_input = 0;
 
-    shell_get_prompt(prompt, sizeof(prompt));
-    line = readline(prompt);
+    do {
+        /* 如果是续行，使用 > 提示符 */
+        if (continue_input) {
+            line = readline("> ");
+        } else {
+            shell_get_prompt(prompt, sizeof(prompt));
+            line = readline(prompt);
+        }
+
+        if (!line) {
+            /* EOF (Ctrl+D) */
+            if (full_line) {
+                free(full_line);
+            }
+            return NULL;
+        }
+
+        /* 检查是否以 \ 结尾（续行） */
+        size_t line_len = strlen(line);
+        if (line_len > 0 && line[line_len - 1] == '\\') {
+            /* 移除末尾的 \，继续读取下一行 */
+            line[line_len - 1] = '\0';
+            continue_input = 1;
+
+            /* 追加到 full_line */
+            char *new_full = realloc(full_line, full_len + line_len + 1);
+            if (!new_full) {
+                free(line);
+                if (full_line) free(full_line);
+                return NULL;
+            }
+            full_line = new_full;
+            strcpy(full_line + full_len, line);
+            full_len += line_len;
+
+            free(line);
+        } else {
+            /* 行结束，合并所有内容 */
+            continue_input = 0;
+
+            if (full_line) {
+                char *new_full = realloc(full_line, full_len + line_len + 1);
+                if (!new_full) {
+                    free(line);
+                    free(full_line);
+                    return NULL;
+                }
+                full_line = new_full;
+                strcpy(full_line + full_len, line);
+                full_len += line_len;
+                free(line);
+            } else {
+                full_line = strdup(line);
+                free(line);
+            }
+        }
+    } while (continue_input);
 
     /* 添加到历史记录（非空行） */
-    if (line && *line) {
-        add_history(line);
+    if (full_line && *full_line) {
+        add_history(full_line);
     }
 
-    return line;
+    return full_line;
 }
 

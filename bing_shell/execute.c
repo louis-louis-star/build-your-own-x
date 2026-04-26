@@ -243,6 +243,37 @@ int shell_execute(char **args) {
 }
 
 /**
+ * 执行子 shell (cmd)
+ * 在子进程中执行括号内的命令
+ */
+static int shell_execute_subshell(char *cmd) {
+    pid_t pid;
+    int status;
+
+    pid = fork();
+
+    if (pid == 0) {
+        /* 子进程：执行命令 */
+        shell_execute_line(cmd);
+        _exit(last_exit_status);
+    } else if (pid < 0) {
+        perror("bing_shell");
+        return 1;
+    } else {
+        /* 父进程：等待子进程完成 */
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status)) {
+            last_exit_status = WEXITSTATUS(status);
+            return last_exit_status;
+        } else if (WIFSIGNALED(status)) {
+            last_exit_status = 128 + WTERMSIG(status);
+            return last_exit_status;
+        }
+        return 1;
+    }
+}
+
+/**
  * 执行单个简单命令行（不支持 && || ;）
  * 在这里进行变量展开，确保 export 后的变量能被后续命令使用
  */
@@ -250,6 +281,39 @@ static int shell_execute_simple(char *line) {
     CommandLine *cmdline;
     int result = 0;
     char *var_expanded;
+    char *p;
+
+    /* 跳过前导空白 */
+    p = line;
+    while (*p == ' ' || *p == '\t') p++;
+
+    /* 检查是否是子 shell (cmd) */
+    if (*p == '(') {
+        /* 找到匹配的右括号 */
+        int depth = 1;
+        char *start = p + 1;
+        char *end = NULL;
+        p++;
+
+        while (*p && depth > 0) {
+            if (*p == '(') depth++;
+            else if (*p == ')') depth--;
+            if (depth == 0) end = p;
+            p++;
+        }
+
+        if (end && depth == 0) {
+            /* 提取括号内的命令 */
+            size_t cmd_len = end - start;
+            char *sub_cmd = malloc(cmd_len + 1);
+            strncpy(sub_cmd, start, cmd_len);
+            sub_cmd[cmd_len] = '\0';
+
+            result = shell_execute_subshell(sub_cmd);
+            free(sub_cmd);
+            return result;
+        }
+    }
 
     /* 变量展开 - 在每个简单命令执行前展开 */
     var_expanded = strdup(shell_expand_variables(line));
