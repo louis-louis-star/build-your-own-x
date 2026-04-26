@@ -293,13 +293,15 @@ static int shell_execute_simple(char *line) {
         int depth = 1;
         char *start = p + 1;
         char *end = NULL;
-        p++;
+        char *scan = p + 1;
 
-        while (*p && depth > 0) {
-            if (*p == '(') depth++;
-            else if (*p == ')') depth--;
-            if (depth == 0) end = p;
-            p++;
+        while (*scan && depth > 0) {
+            if (*scan == '(') depth++;
+            else if (*scan == ')') {
+                depth--;
+                if (depth == 0) end = scan;
+            }
+            scan++;
         }
 
         if (end && depth == 0) {
@@ -311,6 +313,19 @@ static int shell_execute_simple(char *line) {
 
             result = shell_execute_subshell(sub_cmd);
             free(sub_cmd);
+
+            /* 检查括号后是否还有命令 */
+            end++;
+            while (*end == ' ' || *end == '\t') end++;
+            if (*end == ';') {
+                /* 分号后还有命令，继续执行 */
+                end++;
+                while (*end == ' ' || *end == '\t') end++;
+                if (*end != '\0') {
+                    last_exit_status = result;
+                    result = shell_execute_simple(end);
+                }
+            }
             return result;
         }
     }
