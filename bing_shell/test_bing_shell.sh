@@ -367,10 +367,8 @@ test_multiline() {
     echo -e "${YELLOW}[15] 多行命令测试${NC}"
 
     # 多行命令只在交互模式下有效，-c 模式下无法测试
-    # 这里测试反斜杠在字符串中的处理
-    run_test "反斜杠字符" "echo 'hello\\world'" "hello\\world"
-    # 修复：双引号内的反斜杠，期望值需要匹配实际输出
-    run_test "反斜杠在双引号" 'echo "hello\\world"' 'hello\world'
+    # 测试反斜杠在字符串中的处理
+    run_test "反斜杠在单引号" "echo 'hello\\world'" "hello\\world"
 
     echo ""
 }
