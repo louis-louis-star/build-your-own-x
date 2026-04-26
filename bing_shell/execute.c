@@ -415,80 +415,109 @@ int shell_execute_line(char *line) {
     /* 解析并执行命令，支持 && || ; 分隔符 */
     p = work_line;
     cmd_start = p;
+    int paren_depth = 0;  /* 括号深度 */
 
     while (*p != '\0') {
-        /* 检测分隔符 */
-        if (*p == ';' && (p == work_line || *(p-1) != '\\')) {
-            /* 分号：执行前面的命令 */
-            *p = '\0';
-            result = shell_execute_simple(cmd_start);
-            last_exit_status = result;
-            *p = ';';
+        /* 跟踪括号深度 */
+        if (*p == '(') {
+            paren_depth++;
             p++;
-            while (*p == ' ' || *p == '\t') p++;
-            cmd_start = p;
+            continue;
         }
-        else if (*p == '&' && *(p+1) == '&') {
-            /* && : 前面命令成功才执行 */
-            *p = '\0';
-            result = shell_execute_simple(cmd_start);
-            last_exit_status = result;
-            *p = '&';
-            p += 2;
-            while (*p == ' ' || *p == '\t') p++;
-            cmd_start = p;
-            if (last_exit_status != 0) {
-                /* 跳过下一个命令，找到下一个分隔符 */
-                while (*p != '\0' && *p != ';' && !(*p == '&' && *(p+1) == '&') && !(*p == '|' && *(p+1) == '|')) {
-                    p++;
+        if (*p == ')') {
+            paren_depth--;
+            p++;
+            continue;
+        }
+
+        /* 只在括号外处理分隔符 */
+        if (paren_depth == 0) {
+            /* 检测分隔符 */
+            if (*p == ';' && (p == work_line || *(p-1) != '\\')) {
+                /* 分号：执行前面的命令 */
+                *p = '\0';
+                result = shell_execute_simple(cmd_start);
+                last_exit_status = result;
+                *p = ';';
+                p++;
+                while (*p == ' ' || *p == '\t') p++;
+                cmd_start = p;
+                continue;
+            }
+            else if (*p == '&' && *(p+1) == '&') {
+                /* && : 前面命令成功才执行 */
+                *p = '\0';
+                result = shell_execute_simple(cmd_start);
+                last_exit_status = result;
+                *p = '&';
+                p += 2;
+                while (*p == ' ' || *p == '\t') p++;
+                cmd_start = p;
+                if (last_exit_status != 0) {
+                    /* 跳过下一个命令，找到下一个分隔符 */
+                    int skip_depth = 0;
+                    while (*p != '\0') {
+                        if (*p == '(') skip_depth++;
+                        else if (*p == ')') skip_depth--;
+                        else if (skip_depth == 0 && (*p == ';' || (*p == '&' && *(p+1) == '&') || (*p == '|' && *(p+1) == '|'))) {
+                            break;
+                        }
+                        p++;
+                    }
+                    if (*p == ';') {
+                        p++;
+                        while (*p == ' ' || *p == '\t') p++;
+                        cmd_start = p;
+                    } else if (*p == '&' && *(p+1) == '&') {
+                        p += 2;
+                        while (*p == ' ' || *p == '\t') p++;
+                        cmd_start = p;
+                    } else if (*p == '|' && *(p+1) == '|') {
+                        p += 2;
+                        while (*p == ' ' || *p == '\t') p++;
+                        cmd_start = p;
+                    }
                 }
-                if (*p == ';') {
-                    p++;
-                    while (*p == ' ' || *p == '\t') p++;
-                    cmd_start = p;
-                } else if (*p == '&' && *(p+1) == '&') {
-                    p += 2;
-                    while (*p == ' ' || *p == '\t') p++;
-                    cmd_start = p;
-                } else if (*p == '|' && *(p+1) == '|') {
-                    p += 2;
-                    while (*p == ' ' || *p == '\t') p++;
-                    cmd_start = p;
+                continue;
+            }
+            else if (*p == '|' && *(p+1) == '|') {
+                /* || : 前面命令失败才执行 */
+                *p = '\0';
+                result = shell_execute_simple(cmd_start);
+                last_exit_status = result;
+                *p = '|';
+                p += 2;
+                while (*p == ' ' || *p == '\t') p++;
+                cmd_start = p;
+                if (last_exit_status == 0) {
+                    /* 跳过下一个命令 */
+                    int skip_depth = 0;
+                    while (*p != '\0') {
+                        if (*p == '(') skip_depth++;
+                        else if (*p == ')') skip_depth--;
+                        else if (skip_depth == 0 && (*p == ';' || (*p == '&' && *(p+1) == '&') || (*p == '|' && *(p+1) == '|'))) {
+                            break;
+                        }
+                        p++;
+                    }
+                    if (*p == ';') {
+                        p++;
+                        while (*p == ' ' || *p == '\t') p++;
+                        cmd_start = p;
+                    } else if (*p == '&' && *(p+1) == '&') {
+                        p += 2;
+                        while (*p == ' ' || *p == '\t') p++;
+                        cmd_start = p;
+                    } else if (*p == '|' && *(p+1) == '|') {
+                        p += 2;
+                        while (*p == ' ' || *p == '\t') p++;
+                        cmd_start = p;
+                    }
                 }
+                continue;
             }
         }
-        else if (*p == '|' && *(p+1) == '|') {
-            /* || : 前面命令失败才执行 */
-            *p = '\0';
-            result = shell_execute_simple(cmd_start);
-            last_exit_status = result;
-            *p = '|';
-            p += 2;
-            while (*p == ' ' || *p == '\t') p++;
-            cmd_start = p;
-            if (last_exit_status == 0) {
-                /* 跳过下一个命令 */
-                while (*p != '\0' && *p != ';' && !(*p == '&' && *(p+1) == '&') && !(*p == '|' && *(p+1) == '|')) {
-                    p++;
-                }
-                if (*p == ';') {
-                    p++;
-                    while (*p == ' ' || *p == '\t') p++;
-                    cmd_start = p;
-                } else if (*p == '&' && *(p+1) == '&') {
-                    p += 2;
-                    while (*p == ' ' || *p == '\t') p++;
-                    cmd_start = p;
-                } else if (*p == '|' && *(p+1) == '|') {
-                    p += 2;
-                    while (*p == ' ' || *p == '\t') p++;
-                    cmd_start = p;
-                }
-            }
-        }
-        else {
-            p++;
-        }
+        p++;
     }
 
     /* 执行最后一个命令 */
