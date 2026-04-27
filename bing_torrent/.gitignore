@@ -1,0 +1,10 @@
+*.pyc
+__pycache__/
+*.pyo
+*.egg-info/
+dist/
+build/
+*.torrent
+downloads/
+*.bt
+.env
